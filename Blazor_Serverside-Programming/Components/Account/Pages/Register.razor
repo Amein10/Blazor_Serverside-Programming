@@ -6,6 +6,8 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
 @using Blazor_Serverside_Programming.Data
+@using System.Security.Cryptography
+@using Blazor_Serverside_Programming.Services
 
 @inject UserManager<ApplicationUser> UserManager
 @inject IUserStore<ApplicationUser> UserStore
@@ -14,6 +16,7 @@
 @inject ILogger<Register> Logger
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
+@inject IHashingService HashingService
 
 <PageTitle>Register</PageTitle>
 
@@ -82,6 +85,16 @@
         await UserStore.SetUserNameAsync(user, Input.UserName, CancellationToken.None);
         var emailStore = GetEmailStore();
         await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
+
+        var salt = RandomNumberGenerator.GetBytes(32);
+        var pepper = Environment.GetEnvironmentVariable("EMAIL_HASH_PEPPER") ?? "DEV_PEPPER_CHANGE_ME";
+        var iterations = 100_000;
+
+        user.EmailSalt = Convert.ToBase64String(salt);
+        user.EmailHashIterations = iterations;
+        user.EmailHashAlgorithm = "PBKDF2-SHA256";
+        user.EmailHash = HashingService.Pbkdf2Hash(Input.Email, salt, pepper, iterations);
+
         var result = await UserManager.CreateAsync(user, Input.Password);
 
         if (!result.Succeeded)

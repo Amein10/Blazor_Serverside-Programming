@@ -1,6 +1,7 @@
 using Blazor_Serverside_Programming.Components;
 using Blazor_Serverside_Programming.Components.Account;
 using Blazor_Serverside_Programming.Data;
+using Blazor_Serverside_Programming.Services;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +15,7 @@ builder.Services.AddRazorComponents()
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<IdentityRedirectManager>();
 builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
+builder.Services.AddScoped<IHashingService, HashingService>();
 
 builder.Services.AddAuthentication(options =>
     {
