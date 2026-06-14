@@ -3,10 +3,13 @@
 
 @inject FileInfoDbContext FileDb
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject UserManager<ApplicationUser> UserManager
 
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
 @using Blazor_Serverside_Programming.Data
 
 <PageTitle>Admin Upload</PageTitle>
@@ -15,23 +18,58 @@
 
 <p>Kun admin-brugere kan se denne side.</p>
 
+<div class="mb-3">
+    <label class="form-label">Vælg bruger</label>
+
+    <select class="form-select" @bind="selectedUserName">
+        <option value="">-- Vælg bruger --</option>
+
+        @foreach (var user in users)
+        {
+            <option value="@user.UserName">@user.UserName</option>
+        }
+    </select>
+</div>
+
 <InputFile OnChange="HandleFileSelected" />
 
 @if (!string.IsNullOrEmpty(message))
 {
-    <p>@message</p>
+    <p class="mt-3">@message</p>
 }
 
 @code {
     private string? message;
+    private string selectedUserName = "";
+    private List<ApplicationUser> users = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var allUsers = await UserManager.Users.ToListAsync();
+
+        foreach (var user in allUsers)
+        {
+            if (!await UserManager.IsInRoleAsync(user, "Admin"))
+            {
+                users.Add(user);
+            }
+        }
+    }
+
     private async Task HandleFileSelected(InputFileChangeEventArgs e)
     {
+        if (string.IsNullOrWhiteSpace(selectedUserName))
+        {
+            message = "Vælg en bruger før du uploader en fil.";
+            return;
+        }
+
         var file = e.File;
 
         var uploadFolder = Path.Combine(
             Directory.GetCurrentDirectory(),
             "Files",
-            "AdminUploads");
+            selectedUserName);
 
         Directory.CreateDirectory(uploadFolder);
 
@@ -45,10 +83,8 @@
 
         await stream.CopyToAsync(fileStream);
 
-        await stream.CopyToAsync(fileStream);
-
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        var userName = authState.User.Identity?.Name ?? "Unknown";
+        var adminUserName = authState.User.Identity?.Name ?? "Unknown";
 
         var record = new FileRecord
         {
@@ -56,12 +92,12 @@
             FilePath = filePath,
             FileSize = file.Size,
             UploadDate = DateTime.UtcNow,
-            UserName = userName
+            UserName = selectedUserName
         };
 
         FileDb.Files.Add(record);
         await FileDb.SaveChangesAsync();
 
-        message = $"Fil uploadet: {file.Name}";
+        message = $"Fil uploadet til {selectedUserName}: {file.Name}";
     }
 }
