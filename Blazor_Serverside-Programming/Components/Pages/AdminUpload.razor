@@ -1,0 +1,67 @@
+﻿@page "/admin/upload"
+@attribute [Authorize(Roles = "Admin")]
+
+@inject FileInfoDbContext FileDb
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Authorization
+@using Blazor_Serverside_Programming.Data
+
+<PageTitle>Admin Upload</PageTitle>
+
+<h1>Admin Upload</h1>
+
+<p>Kun admin-brugere kan se denne side.</p>
+
+<InputFile OnChange="HandleFileSelected" />
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <p>@message</p>
+}
+
+@code {
+    private string? message;
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+
+        var uploadFolder = Path.Combine(
+            Directory.GetCurrentDirectory(),
+            "Files",
+            "AdminUploads");
+
+        Directory.CreateDirectory(uploadFolder);
+
+        var filePath = Path.Combine(uploadFolder, file.Name);
+
+        await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+
+        await using var fileStream = new FileStream(
+            filePath,
+            FileMode.Create);
+
+        await stream.CopyToAsync(fileStream);
+
+        await stream.CopyToAsync(fileStream);
+
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userName = authState.User.Identity?.Name ?? "Unknown";
+
+        var record = new FileRecord
+        {
+            FileName = file.Name,
+            FilePath = filePath,
+            FileSize = file.Size,
+            UploadDate = DateTime.UtcNow,
+            UserName = userName
+        };
+
+        FileDb.Files.Add(record);
+        await FileDb.SaveChangesAsync();
+
+        message = $"Fil uploadet: {file.Name}";
+    }
+}
