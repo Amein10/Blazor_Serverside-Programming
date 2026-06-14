@@ -87,7 +87,12 @@
         await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
 
         var salt = RandomNumberGenerator.GetBytes(32);
-        var pepper = Environment.GetEnvironmentVariable("EMAIL_HASH_PEPPER") ?? "DEV_PEPPER_CHANGE_ME";
+        var pepper = Environment.GetEnvironmentVariable("EMAIL_HASH_PEPPER");
+
+        if (string.IsNullOrWhiteSpace(pepper))
+        {
+            throw new InvalidOperationException("EMAIL_HASH_PEPPER environment variable is not configured.");
+        }
         var iterations = 100_000;
 
         user.EmailSalt = Convert.ToBase64String(salt);
