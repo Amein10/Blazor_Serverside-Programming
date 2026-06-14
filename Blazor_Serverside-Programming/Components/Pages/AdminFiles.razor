@@ -1,0 +1,58 @@
+﻿@page "/admin/files"
+@attribute [Authorize(Roles = "Admin")]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Blazor_Serverside_Programming.Data
+
+@inject FileInfoDbContext FileDb
+
+<PageTitle>Admin Files</PageTitle>
+
+<h1>Uploadede filer</h1>
+
+@if (files is null)
+{
+    <p>Indlæser filer...</p>
+}
+else if (!files.Any())
+{
+    <p>Der er ingen uploadede filer endnu.</p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Filnavn</th>
+                <th>Størrelse</th>
+                <th>Uploadet af</th>
+                <th>Dato</th>
+                <th>Filsti</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var file in files)
+            {
+                <tr>
+                    <td>@file.FileName</td>
+                    <td>@file.FileSize bytes</td>
+                    <td>@file.UserName</td>
+                    <td>@file.UploadDate.ToLocalTime()</td>
+                    <td>@file.FilePath</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<FileRecord>? files;
+
+    protected override async Task OnInitializedAsync()
+    {
+        files = await FileDb.Files
+            .OrderByDescending(f => f.UploadDate)
+            .ToListAsync();
+    }
+}
