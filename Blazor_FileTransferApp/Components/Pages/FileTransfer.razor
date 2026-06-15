@@ -24,6 +24,12 @@
 @code {
     private string? message;
 
+    // Første gang: lad den være tom.
+    // Kør appen, kopier fingerprint fra browseren,
+    // og indsæt værdien her.
+    private const string ExpectedPublicKeyFingerprint = 
+    "CA29F3E1DF8E672707D539AF1FA328BC6E6D9A36BDC6CA8903482D10761BD6C9";
+
     private async Task HandleFileSelected(InputFileChangeEventArgs e)
     {
         byte[]? fileBytes = null;
@@ -42,11 +48,28 @@
             // Den ligger kun midlertidigt i memory før AES-kryptering.
             fileBytes = memoryStream.ToArray();
 
-            var aesResult = AesHandler.Encrypt(fileBytes);
-
             var client = HttpClientFactory.CreateClient();
 
             var publicKey = await client.GetStringAsync("https://localhost:7209/api/publickey");
+
+            var publicKeyBytes = Convert.FromBase64String(publicKey);
+            var publicKeyFingerprint = Convert.ToHexString(SHA256.HashData(publicKeyBytes));
+
+            if (string.IsNullOrWhiteSpace(ExpectedPublicKeyFingerprint))
+            {
+                message = $"Public key fingerprint: {publicKeyFingerprint}";
+                return;
+            }
+
+            if (!CryptographicOperations.FixedTimeEquals(
+                    Convert.FromHexString(publicKeyFingerprint),
+                    Convert.FromHexString(ExpectedPublicKeyFingerprint)))
+            {
+                message = "Public key validation failed. Upload stopped.";
+                return;
+            }
+
+            var aesResult = AesHandler.Encrypt(fileBytes);
 
             encryptedAesKey = RsaClientHandler.EncryptWithPublicKey(
                 aesResult.Key,
