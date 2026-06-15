@@ -1,0 +1,58 @@
+﻿@page "/filedownloader"
+@attribute [Authorize]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Blazor_Serverside_Programming.Data
+
+@inject FileInfoDbContext FileDb
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Download Files</PageTitle>
+
+<h1>Download Files</h1>
+
+@if (files is null)
+{
+    <p>Loading files...</p>
+}
+else if (!files.Any())
+{
+    <p>No files available to download</p>
+}
+else
+{
+    @foreach (var file in files)
+    {
+        <div class="mb-2">
+            <span>@file.FileName</span>
+
+            <a class="btn btn-sm btn-primary ms-2"
+               href="@($"/file-validation/{file.Id}")">
+                Validate & Download
+            </a>
+        </div>
+    }
+}
+
+@code {
+    private List<FileRecord>? files;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userName = authState.User.Identity?.Name;
+
+        if (string.IsNullOrWhiteSpace(userName))
+        {
+            files = new();
+            return;
+        }
+
+        files = await FileDb.Files
+            .Where(f => f.UserName == userName)
+            .OrderByDescending(f => f.UploadDate)
+            .ToListAsync();
+    }
+}

@@ -8,7 +8,6 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
@@ -18,37 +17,40 @@ builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuth
 builder.Services.AddScoped<IHashingService, HashingService>();
 
 builder.Services.AddAuthentication(options =>
-    {
-        options.DefaultScheme = IdentityConstants.ApplicationScheme;
-        options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
-    })
+{
+    options.DefaultScheme = IdentityConstants.ApplicationScheme;
+    options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
+})
     .AddIdentityCookies();
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
+
 builder.Services.AddDatabaseDeveloperPageExceptionFilter();
 
 var connectionString2 = builder.Configuration.GetConnectionString("FileUploaderConnection")
     ?? throw new InvalidOperationException("Connection string 'FileUploaderConnection' not found.");
+
 builder.Services.AddDbContext<FileInfoDbContext>(options =>
     options.UseSqlite(connectionString2));
 
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
-    {
-        options.SignIn.RequireConfirmedAccount = true;
-        options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
-    })
-.AddRoles<IdentityRole>()
-.AddEntityFrameworkStores<ApplicationDbContext>()
-.AddSignInManager()
-.AddDefaultTokenProviders();
+{
+    options.SignIn.RequireConfirmedAccount = true;
+    options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
+})
+    .AddRoles<IdentityRole>()
+    .AddEntityFrameworkStores<ApplicationDbContext>()
+    .AddSignInManager()
+    .AddDefaultTokenProviders();
 
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseMigrationsEndPoint();
@@ -56,19 +58,19 @@ if (app.Environment.IsDevelopment())
 else
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
+
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
 
 app.UseAntiforgery();
 
 app.MapStaticAssets();
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();
 
 using (var scope = app.Services.CreateScope())
@@ -105,5 +107,48 @@ using (var scope = app.Services.CreateScope())
         }
     }
 }
+
+app.MapGet("/download-file/{id:int}", async (
+    int id,
+    HttpContext httpContext,
+    FileInfoDbContext fileDb,
+    IHashingService hashingService) =>
+{
+    var userName = httpContext.User.Identity?.Name;
+
+    if (string.IsNullOrWhiteSpace(userName))
+    {
+        return Results.Unauthorized();
+    }
+
+    var file = await fileDb.Files
+        .FirstOrDefaultAsync(f => f.Id == id && f.UserName == userName);
+
+    if (file is null || !File.Exists(file.FilePath))
+    {
+        return Results.NotFound();
+    }
+
+    var fileBytes = await File.ReadAllBytesAsync(file.FilePath);
+
+    var keyBytes = Convert.FromBase64String(file.VerificationKey);
+    var newHash = hashingService.HmacSha256Hash(fileBytes, keyBytes);
+
+    if (newHash != file.VerificationHash)
+    {
+        return Results.BadRequest("File validation failed.");
+    }
+
+    File.Delete(file.FilePath);
+
+    fileDb.Files.Remove(file);
+    await fileDb.SaveChangesAsync();
+
+    return Results.File(
+        fileBytes,
+        file.FileType,
+        file.FileName);
+})
+.RequireAuthorization();
 
 app.Run();

@@ -1,0 +1,65 @@
+﻿@page "/file-validation/{Id:int}"
+@attribute [Authorize]
+
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
+@using Blazor_Serverside_Programming.Data
+@using Blazor_Serverside_Programming.Services
+
+@inject FileInfoDbContext FileDb
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IHashingService HashingService
+
+<h1>File Validation Result</h1>
+
+@if (file is null)
+{
+    <p>File not found.</p>
+}
+else
+{
+    <p>File: <strong>@file.FileName</strong></p>
+
+    @if (isValid)
+    {
+        <p class="text-success">No contamination detected ✅</p>
+
+        <a class="btn btn-primary" href="@($"/download-file/{file.Id}")">
+            Download file
+        </a>
+    }
+    else
+    {
+        <p class="text-danger">Contaminated ❌</p>
+    }
+}
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private FileRecord? file;
+    private bool isValid;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var userName = authState.User.Identity?.Name;
+
+        file = await FileDb.Files
+            .FirstOrDefaultAsync(f => f.Id == Id && f.UserName == userName);
+
+        if (file is null || !File.Exists(file.FilePath))
+        {
+            return;
+        }
+
+        var fileBytes = await File.ReadAllBytesAsync(file.FilePath);
+        var keyBytes = Convert.FromBase64String(file.VerificationKey);
+
+        var newHash = HashingService.HmacSha256Hash(fileBytes, keyBytes);
+
+        isValid = newHash == file.VerificationHash;
+    }
+}
