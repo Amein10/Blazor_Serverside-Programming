@@ -5,6 +5,7 @@ using Blazor_Serverside_Programming.Services;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +16,7 @@ builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<IdentityRedirectManager>();
 builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
 builder.Services.AddScoped<IHashingService, HashingService>();
+builder.Services.AddScoped<AesDecryptHandler>();
 
 builder.Services.AddAuthentication(options =>
 {
@@ -48,7 +50,6 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     .AddDefaultTokenProviders();
 
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
-
 builder.Services.AddSingleton<RsaHandler>();
 
 var app = builder.Build();
@@ -156,6 +157,60 @@ app.MapGet("/download-file/{id:int}", async (
 app.MapGet("/api/publickey", (RsaHandler rsaHandler) =>
 {
     return rsaHandler.GetPublicKey();
+});
+
+app.MapPost("/api/upload-encrypted-file", async (
+    EncryptedFileUploadRequest request,
+    RsaHandler rsaHandler,
+    AesDecryptHandler aesDecryptHandler,
+    FileInfoDbContext fileDb,
+    IHashingService hashingService) =>
+{
+    var encryptedFileBytes = Convert.FromBase64String(request.EncryptedFile);
+    var encryptedKeyBytes = Convert.FromBase64String(request.EncryptedKey);
+    var ivBytes = Convert.FromBase64String(request.IV);
+
+    var aesKey = rsaHandler.Decrypt(encryptedKeyBytes);
+
+    var decryptedFileBytes = aesDecryptHandler.Decrypt(
+        encryptedFileBytes,
+        aesKey,
+        ivBytes);
+
+    var adminFolder = Path.Combine(
+        Directory.GetCurrentDirectory(),
+        "Files",
+        "admin");
+
+    Directory.CreateDirectory(adminFolder);
+
+    var filePath = Path.Combine(adminFolder, request.FileName);
+
+    await File.WriteAllBytesAsync(filePath, decryptedFileBytes);
+
+    var verificationKeyBytes = RandomNumberGenerator.GetBytes(32);
+    var verificationKey = Convert.ToBase64String(verificationKeyBytes);
+
+    var verificationHash =
+        hashingService.HmacSha256Hash(decryptedFileBytes, verificationKeyBytes);
+
+    var record = new FileRecord
+    {
+        FileName = request.FileName,
+        FileType = request.FileType,
+        FilePath = filePath,
+        FileSize = decryptedFileBytes.Length,
+        UploadDate = DateTime.UtcNow,
+        UserName = "admin",
+        VerificationHash = verificationHash,
+        VerificationKey = verificationKey,
+        HashAlgorithm = "HMAC-SHA256"
+    };
+
+    fileDb.Files.Add(record);
+    await fileDb.SaveChangesAsync();
+
+    return Results.Ok($"Encrypted file '{request.FileName}' was received, decrypted and stored for admin.");
 });
 
 app.Run();

@@ -9,6 +9,10 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddScoped<AesHandler>();
 
+builder.Services.AddScoped<RsaClientHandler>();
+
+builder.Services.AddHttpClient();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
