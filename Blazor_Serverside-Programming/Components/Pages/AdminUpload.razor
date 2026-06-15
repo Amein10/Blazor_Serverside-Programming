@@ -4,6 +4,7 @@
 @inject FileInfoDbContext FileDb
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject UserManager<ApplicationUser> UserManager
+@inject IHashingService HashingService
 
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Forms
@@ -11,6 +12,8 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.EntityFrameworkCore
 @using Blazor_Serverside_Programming.Data
+@using Blazor_Serverside_Programming.Services
+@using System.Security.Cryptography
 
 <PageTitle>Admin Upload</PageTitle>
 
@@ -77,11 +80,17 @@
 
         await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
 
-        await using var fileStream = new FileStream(
-            filePath,
-            FileMode.Create);
+        using var memoryStream = new MemoryStream();
+        await stream.CopyToAsync(memoryStream);
 
-        await stream.CopyToAsync(fileStream);
+        var fileBytes = memoryStream.ToArray();
+
+        await File.WriteAllBytesAsync(filePath, fileBytes);
+
+        var verificationKeyBytes = RandomNumberGenerator.GetBytes(32);
+        var verificationKey = Convert.ToBase64String(verificationKeyBytes);
+
+        var verificationHash = HashingService.HmacSha256Hash(fileBytes, verificationKeyBytes);
 
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
         var adminUserName = authState.User.Identity?.Name ?? "Unknown";
@@ -89,10 +98,15 @@
         var record = new FileRecord
         {
             FileName = file.Name,
+            FileType = file.ContentType,
             FilePath = filePath,
             FileSize = file.Size,
             UploadDate = DateTime.UtcNow,
-            UserName = selectedUserName
+            UserName = selectedUserName,
+
+            VerificationHash = verificationHash,
+            VerificationKey = verificationKey,
+            HashAlgorithm = "HMAC-SHA256"
         };
 
         FileDb.Files.Add(record);

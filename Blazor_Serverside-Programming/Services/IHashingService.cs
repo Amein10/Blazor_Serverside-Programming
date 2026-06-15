@@ -6,4 +6,6 @@ public interface IHashingService
     string HmacSha256Hash(string input, string key);
     string Pbkdf2Hash(string input, byte[] salt, string pepper, int iterations);
     string BCryptHash(string input);
+
+    string HmacSha256Hash(byte[] input, byte[] key);
 }

@@ -41,4 +41,12 @@ public class HashingService : IHashingService
     {
         return BCrypt.Net.BCrypt.HashPassword(input);
     }
+
+    public string HmacSha256Hash(byte[] input, byte[] key)
+    {
+        using var hmac = new HMACSHA256(key);
+        var hash = hmac.ComputeHash(input);
+
+        return Convert.ToBase64String(hash);
+    }
 }
