@@ -146,7 +146,12 @@ app.MapGet("/download-file/{id:int}", async (
         Convert.FromBase64String(unprotectedKey);
     var newHash = hashingService.HmacSha256Hash(fileBytes, keyBytes);
 
-    if (newHash != file.VerificationHash)
+    var newHashBytes = Convert.FromBase64String(newHash);
+    var storedHashBytes = Convert.FromBase64String(file.VerificationHash);
+
+    var isValid = CryptographicOperations.FixedTimeEquals(newHashBytes, storedHashBytes);
+
+    if (!isValid)
     {
         File.Delete(file.FilePath);
 

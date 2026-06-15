@@ -4,6 +4,7 @@
 @using Blazor_FileTransferApp.Services
 @using Blazor_FileTransferApp.Data
 @using System.Net.Http.Json
+@using System.Security.Cryptography
 
 @inject IHttpClientFactory HttpClientFactory
 @inject AesHandler AesHandler
@@ -25,45 +26,69 @@
 
     private async Task HandleFileSelected(InputFileChangeEventArgs e)
     {
-        var file = e.File;
+        byte[]? fileBytes = null;
+        byte[]? encryptedAesKey = null;
 
-        await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
-
-        using var memoryStream = new MemoryStream();
-        await stream.CopyToAsync(memoryStream);
-
-        var fileBytes = memoryStream.ToArray();
-
-        var aesResult = AesHandler.Encrypt(fileBytes);
-
-        var client = HttpClientFactory.CreateClient();
-
-        var publicKey = await client.GetStringAsync("https://localhost:7209/api/publickey");
-
-        var encryptedAesKey = RsaClientHandler.EncryptWithPublicKey(
-            aesResult.Key,
-            publicKey);
-
-        var request = new EncryptedFileUploadRequest
+        try
         {
-            FileName = file.Name,
-            FileType = file.ContentType,
-            EncryptedFile = Convert.ToBase64String(aesResult.EncryptedBytes),
-            EncryptedKey = Convert.ToBase64String(encryptedAesKey),
-            IV = Convert.ToBase64String(aesResult.IV)
-        };
+            var file = e.File;
 
-        var response = await client.PostAsJsonAsync(
-            "https://localhost:7209/api/upload-encrypted-file",
-            request);
+            await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
 
-        if (response.IsSuccessStatusCode)
-        {
-            message = $"Filen blev krypteret og sendt: {file.Name}";
+            using var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+
+            // Filen gemmes ikke ukrypteret på disk.
+            // Den ligger kun midlertidigt i memory før AES-kryptering.
+            fileBytes = memoryStream.ToArray();
+
+            var aesResult = AesHandler.Encrypt(fileBytes);
+
+            var client = HttpClientFactory.CreateClient();
+
+            var publicKey = await client.GetStringAsync("https://localhost:7209/api/publickey");
+
+            encryptedAesKey = RsaClientHandler.EncryptWithPublicKey(
+                aesResult.Key,
+                publicKey);
+
+            var request = new EncryptedFileUploadRequest
+            {
+                FileName = file.Name,
+                FileType = file.ContentType,
+                EncryptedFile = Convert.ToBase64String(aesResult.EncryptedBytes),
+                EncryptedKey = Convert.ToBase64String(encryptedAesKey),
+                IV = Convert.ToBase64String(aesResult.IV)
+            };
+
+            var response = await client.PostAsJsonAsync(
+                "https://localhost:7209/api/upload-encrypted-file",
+                request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                message = $"Filen blev krypteret og sendt: {file.Name}";
+            }
+            else
+            {
+                message = $"Fejl ved upload: {response.StatusCode}";
+            }
+
+            CryptographicOperations.ZeroMemory(aesResult.Key);
+            CryptographicOperations.ZeroMemory(aesResult.IV);
+            CryptographicOperations.ZeroMemory(aesResult.EncryptedBytes);
         }
-        else
+        finally
         {
-            message = $"Fejl ved upload: {response.StatusCode}";
+            if (fileBytes is not null)
+            {
+                CryptographicOperations.ZeroMemory(fileBytes);
+            }
+
+            if (encryptedAesKey is not null)
+            {
+                CryptographicOperations.ZeroMemory(encryptedAesKey);
+            }
         }
     }
 }

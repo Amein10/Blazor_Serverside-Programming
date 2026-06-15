@@ -7,6 +7,7 @@
 @using Blazor_Serverside_Programming.Data
 @using Blazor_Serverside_Programming.Services
 @using Microsoft.AspNetCore.DataProtection
+@using System.Security.Cryptography
 
 @inject FileInfoDbContext FileDb
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -70,7 +71,10 @@ else
 
         var newHash = HashingService.HmacSha256Hash(fileBytes, keyBytes);
 
-        isValid = newHash == file.VerificationHash;
+        var newHashBytes = Convert.FromBase64String(newHash);
+        var storedHashBytes = Convert.FromBase64String(file.VerificationHash);
+
+        isValid = CryptographicOperations.FixedTimeEquals(newHashBytes, storedHashBytes);
 
         if (!isValid)
         {
