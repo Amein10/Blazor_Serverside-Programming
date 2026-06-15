@@ -1,23 +1,36 @@
-﻿@page "/filedownloader"
+﻿@page "/files"
 @attribute [Authorize]
 
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
 @using Microsoft.EntityFrameworkCore
 @using Blazor_Serverside_Programming.Data
 
 @inject FileInfoDbContext FileDb
 @inject AuthenticationStateProvider AuthenticationStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavigationManager
 
 <PageTitle>Download Files</PageTitle>
 
 <h1>Download Files</h1>
 
-@if (files is null)
+@if (isLoading)
 {
     <p>Indlæser filer...</p>
 }
-else if (!files.Any())
+else if (!isAdmin && !isTwoFactorEnabled)
+{
+    <div class="alert alert-warning">
+        Du skal aktivere 2FA før du kan se og downloade filer.
+    </div>
+
+    <a class="btn btn-primary" href="/Account/Manage/EnableAuthenticator">
+        Aktivér 2FA
+    </a>
+}
+else if (files is null || !files.Any())
 {
     <p>Der er ingen filer til download.</p>
 }
@@ -55,15 +68,40 @@ else
 
 @code {
     private List<FileRecord>? files;
+    private bool isLoading = true;
+    private bool isAdmin;
+    private bool isTwoFactorEnabled;
 
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        var userName = authState.User.Identity?.Name;
+        var principal = authState.User;
+
+        var userName = principal.Identity?.Name;
 
         if (string.IsNullOrWhiteSpace(userName))
         {
             files = new();
+            isLoading = false;
+            return;
+        }
+
+        var user = await UserManager.GetUserAsync(principal);
+
+        if (user is null)
+        {
+            files = new();
+            isLoading = false;
+            return;
+        }
+
+        isAdmin = await UserManager.IsInRoleAsync(user, "Admin");
+        isTwoFactorEnabled = await UserManager.GetTwoFactorEnabledAsync(user);
+
+        if (!isAdmin && !isTwoFactorEnabled)
+        {
+            files = new();
+            isLoading = false;
             return;
         }
 
@@ -71,5 +109,7 @@ else
             .Where(f => f.UserName == userName)
             .OrderByDescending(f => f.UploadDate)
             .ToListAsync();
+
+        isLoading = false;
     }
 }

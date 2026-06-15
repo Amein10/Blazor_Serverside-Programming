@@ -22,10 +22,8 @@
             </NavLink>
         </div>
 
-        <AuthorizeView>
-
+        <AuthorizeView Roles="Admin">
             <Authorized>
-
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="admin/upload">
                         <span class="bi bi-upload"></span>
@@ -39,9 +37,13 @@
                         Admin Files
                     </NavLink>
                 </div>
+            </Authorized>
+        </AuthorizeView>
 
+        <AuthorizeView>
+            <Authorized>
                 <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="filedownloader">
+                    <NavLink class="nav-link" href="files">
                         <span class="bi bi-download"></span>
                         Download Files
                     </NavLink>
@@ -65,11 +67,9 @@
                         </button>
                     </form>
                 </div>
-
             </Authorized>
 
             <NotAuthorized>
-
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="Account/Register">
                         <span class="bi bi-person-nav-menu" aria-hidden="true"></span>
@@ -83,9 +83,7 @@
                         Login
                     </NavLink>
                 </div>
-
             </NotAuthorized>
-
         </AuthorizeView>
 
     </nav>
