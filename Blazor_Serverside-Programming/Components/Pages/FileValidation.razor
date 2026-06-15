@@ -6,10 +6,12 @@
 @using Microsoft.EntityFrameworkCore
 @using Blazor_Serverside_Programming.Data
 @using Blazor_Serverside_Programming.Services
+@using Microsoft.AspNetCore.DataProtection
 
 @inject FileInfoDbContext FileDb
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject IHashingService HashingService
+@inject IDataProtectionProvider DataProtectionProvider
 
 <h1>File Validation Result</h1>
 
@@ -32,6 +34,7 @@ else
     else
     {
         <p class="text-danger">Contaminated ❌</p>
+        <p>Filen er slettet fra systemet.</p>
     }
 }
 
@@ -56,10 +59,28 @@ else
         }
 
         var fileBytes = await File.ReadAllBytesAsync(file.FilePath);
-        var keyBytes = Convert.FromBase64String(file.VerificationKey);
+        var protector = DataProtectionProvider
+            .CreateProtector("FileVerificationKeyProtector");
+
+        var unprotectedKey =
+            protector.Unprotect(file.VerificationKey);
+
+        var keyBytes =
+            Convert.FromBase64String(unprotectedKey);
 
         var newHash = HashingService.HmacSha256Hash(fileBytes, keyBytes);
 
         isValid = newHash == file.VerificationHash;
+
+        if (!isValid)
+        {
+            if (File.Exists(file.FilePath))
+            {
+                File.Delete(file.FilePath);
+            }
+
+            FileDb.Files.Remove(file);
+            await FileDb.SaveChangesAsync();
+        }
     }
 }

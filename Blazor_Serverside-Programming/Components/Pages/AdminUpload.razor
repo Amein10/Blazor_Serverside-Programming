@@ -5,12 +5,14 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject UserManager<ApplicationUser> UserManager
 @inject IHashingService HashingService
+@inject IDataProtectionProvider DataProtectionProvider
 
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.DataProtection
 @using Blazor_Serverside_Programming.Data
 @using Blazor_Serverside_Programming.Services
 @using System.Security.Cryptography
@@ -90,10 +92,14 @@
         var verificationKeyBytes = RandomNumberGenerator.GetBytes(32);
         var verificationKey = Convert.ToBase64String(verificationKeyBytes);
 
-        var verificationHash = HashingService.HmacSha256Hash(fileBytes, verificationKeyBytes);
+        var protector = DataProtectionProvider
+            .CreateProtector("FileVerificationKeyProtector");
 
-        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
-        var adminUserName = authState.User.Identity?.Name ?? "Unknown";
+        var protectedVerificationKey =
+            protector.Protect(verificationKey);
+
+        var verificationHash =
+            HashingService.HmacSha256Hash(fileBytes, verificationKeyBytes);
 
         var record = new FileRecord
         {
@@ -105,7 +111,7 @@
             UserName = selectedUserName,
 
             VerificationHash = verificationHash,
-            VerificationKey = verificationKey,
+            VerificationKey = protectedVerificationKey,
             HashAlgorithm = "HMAC-SHA256"
         };
 

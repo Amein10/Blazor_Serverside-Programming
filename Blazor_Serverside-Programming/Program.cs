@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
+using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,7 +18,7 @@ builder.Services.AddScoped<IdentityRedirectManager>();
 builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
 builder.Services.AddScoped<IHashingService, HashingService>();
 builder.Services.AddScoped<AesDecryptHandler>();
-
+builder.Services.AddDataProtection();
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultScheme = IdentityConstants.ApplicationScheme;
@@ -115,7 +116,8 @@ app.MapGet("/download-file/{id:int}", async (
     int id,
     HttpContext httpContext,
     FileInfoDbContext fileDb,
-    IHashingService hashingService) =>
+    IHashingService hashingService,
+    IDataProtectionProvider dataProtectionProvider) =>
 {
     var userName = httpContext.User.Identity?.Name;
 
@@ -134,7 +136,14 @@ app.MapGet("/download-file/{id:int}", async (
 
     var fileBytes = await File.ReadAllBytesAsync(file.FilePath);
 
-    var keyBytes = Convert.FromBase64String(file.VerificationKey);
+    var protector = dataProtectionProvider
+    .CreateProtector("FileVerificationKeyProtector");
+
+    var unprotectedKey =
+        protector.Unprotect(file.VerificationKey);
+
+    var keyBytes =
+        Convert.FromBase64String(unprotectedKey);
     var newHash = hashingService.HmacSha256Hash(fileBytes, keyBytes);
 
     if (newHash != file.VerificationHash)
@@ -169,7 +178,8 @@ app.MapPost("/api/upload-encrypted-file", async (
     RsaHandler rsaHandler,
     AesDecryptHandler aesDecryptHandler,
     FileInfoDbContext fileDb,
-    IHashingService hashingService) =>
+    IHashingService hashingService,
+    IDataProtectionProvider dataProtectionProvider) =>
 {
     var encryptedFileBytes = Convert.FromBase64String(request.EncryptedFile);
     var encryptedKeyBytes = Convert.FromBase64String(request.EncryptedKey);
@@ -194,7 +204,15 @@ app.MapPost("/api/upload-encrypted-file", async (
     await File.WriteAllBytesAsync(filePath, decryptedFileBytes);
 
     var verificationKeyBytes = RandomNumberGenerator.GetBytes(32);
-    var verificationKey = Convert.ToBase64String(verificationKeyBytes);
+
+    var verificationKey =
+        Convert.ToBase64String(verificationKeyBytes);
+
+    var protector = dataProtectionProvider
+        .CreateProtector("FileVerificationKeyProtector");
+
+    var protectedVerificationKey =
+        protector.Protect(verificationKey);
 
     var verificationHash =
         hashingService.HmacSha256Hash(decryptedFileBytes, verificationKeyBytes);
@@ -208,7 +226,7 @@ app.MapPost("/api/upload-encrypted-file", async (
         UploadDate = DateTime.UtcNow,
         UserName = "admin",
         VerificationHash = verificationHash,
-        VerificationKey = verificationKey,
+        VerificationKey = protectedVerificationKey,
         HashAlgorithm = "HMAC-SHA256"
     };
 
