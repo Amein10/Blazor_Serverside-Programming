@@ -15,25 +15,42 @@
 
 @if (files is null)
 {
-    <p>Loading files...</p>
+    <p>Indlæser filer...</p>
 }
 else if (!files.Any())
 {
-    <p>No files available to download</p>
+    <p>Der er ingen filer til download.</p>
 }
 else
 {
-    @foreach (var file in files)
-    {
-        <div class="mb-2">
-            <span>@file.FileName</span>
-
-            <a class="btn btn-sm btn-primary ms-2"
-               href="@($"/file-validation/{file.Id}")">
-                Validate & Download
-            </a>
-        </div>
-    }
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Filnavn</th>
+                <th>Størrelse</th>
+                <th>Filtype</th>
+                <th>Upload dato</th>
+                <th>Handling</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var file in files)
+            {
+                <tr>
+                    <td>@file.FileName</td>
+                    <td>@file.FileSize bytes</td>
+                    <td>@file.FileType</td>
+                    <td>@file.UploadDate.ToLocalTime()</td>
+                    <td>
+                        <a class="btn btn-primary btn-sm"
+                           href="/file-validation/@file.Id">
+                            Validate & Download
+                        </a>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
 }
 
 @code {

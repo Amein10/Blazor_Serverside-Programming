@@ -29,6 +29,7 @@ else
                 <th>Uploadet af</th>
                 <th>Dato</th>
                 <th>Filsti</th>
+                <th>Handling</th>
             </tr>
         </thead>
         <tbody>
@@ -40,6 +41,12 @@ else
                     <td>@file.UserName</td>
                     <td>@file.UploadDate.ToLocalTime()</td>
                     <td>@file.FilePath</td>
+                    <td>
+                        <a class="btn btn-primary btn-sm"
+                           href="/file-validation/@file.Id">
+                            Validate & Download
+                        </a>
+                    </td>
                 </tr>
             }
         </tbody>

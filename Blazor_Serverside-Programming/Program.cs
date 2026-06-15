@@ -139,6 +139,11 @@ app.MapGet("/download-file/{id:int}", async (
 
     if (newHash != file.VerificationHash)
     {
+        File.Delete(file.FilePath);
+
+        fileDb.Files.Remove(file);
+        await fileDb.SaveChangesAsync();
+
         return Results.BadRequest("File validation failed.");
     }
 
