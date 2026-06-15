@@ -49,6 +49,8 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
 
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
 
+builder.Services.AddSingleton<RsaHandler>();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -150,5 +152,10 @@ app.MapGet("/download-file/{id:int}", async (
         file.FileName);
 })
 .RequireAuthorization();
+
+app.MapGet("/api/publickey", (RsaHandler rsaHandler) =>
+{
+    return rsaHandler.GetPublicKey();
+});
 
 app.Run();
