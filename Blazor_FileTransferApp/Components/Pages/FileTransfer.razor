@@ -1,6 +1,13 @@
 ﻿@page "/transfer"
 
 @using Microsoft.AspNetCore.Components.Forms
+@using Blazor_FileTransferApp.Services
+@using Blazor_FileTransferApp.Data
+@using System.Net.Http.Json
+
+@inject IHttpClientFactory HttpClientFactory
+@inject AesHandler AesHandler
+@inject RsaClientHandler RsaClientHandler
 
 <PageTitle>Fil overførsel app</PageTitle>
 
@@ -14,12 +21,49 @@
 }
 
 @code {
-
     private string? message;
 
-    private void HandleFileSelected(InputFileChangeEventArgs e)
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
     {
-        message = $"Valgt fil: {e.File.Name}";
-    }
+        var file = e.File;
 
+        await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+
+        using var memoryStream = new MemoryStream();
+        await stream.CopyToAsync(memoryStream);
+
+        var fileBytes = memoryStream.ToArray();
+
+        var aesResult = AesHandler.Encrypt(fileBytes);
+
+        var client = HttpClientFactory.CreateClient();
+
+        var publicKey = await client.GetStringAsync("https://localhost:7209/api/publickey");
+
+        var encryptedAesKey = RsaClientHandler.EncryptWithPublicKey(
+            aesResult.Key,
+            publicKey);
+
+        var request = new EncryptedFileUploadRequest
+        {
+            FileName = file.Name,
+            FileType = file.ContentType,
+            EncryptedFile = Convert.ToBase64String(aesResult.EncryptedBytes),
+            EncryptedKey = Convert.ToBase64String(encryptedAesKey),
+            IV = Convert.ToBase64String(aesResult.IV)
+        };
+
+        var response = await client.PostAsJsonAsync(
+            "https://localhost:7209/api/upload-encrypted-file",
+            request);
+
+        if (response.IsSuccessStatusCode)
+        {
+            message = $"Filen blev krypteret og sendt: {file.Name}";
+        }
+        else
+        {
+            message = $"Fejl ved upload: {response.StatusCode}";
+        }
+    }
 }
