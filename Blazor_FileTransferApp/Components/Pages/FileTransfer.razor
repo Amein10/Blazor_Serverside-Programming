@@ -1,0 +1,25 @@
+﻿@page "/transfer"
+
+@using Microsoft.AspNetCore.Components.Forms
+
+<PageTitle>Fil overførsel app</PageTitle>
+
+<h1>Fil overførsel app</h1>
+
+<InputFile OnChange="HandleFileSelected" />
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <p>@message</p>
+}
+
+@code {
+
+    private string? message;
+
+    private void HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        message = $"Valgt fil: {e.File.Name}";
+    }
+
+}

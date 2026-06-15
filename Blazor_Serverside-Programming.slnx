@@ -1,3 +1,4 @@
 <Solution>
+  <Project Path="Blazor_FileTransferApp/Blazor_FileTransferApp.csproj" Id="0f54d677-61fc-4e5a-8c9b-4a04ca16504a" />
   <Project Path="Blazor_Serverside-Programming/Blazor_Serverside-Programming.csproj" />
 </Solution>
