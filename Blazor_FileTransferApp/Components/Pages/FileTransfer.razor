@@ -27,6 +27,14 @@
     // Første gang: lad den være tom.
     // Kør appen, kopier fingerprint fra browseren,
     // og indsæt værdien her.
+
+    /*
+     * For at beskytte mod Man-in-the-Middle-angreb verificerer klienten serverens offentlige RSA-nøgle ved hjælp af
+     * et SHA-256 fingerprint. Klienten sammenligner fingerprintet af den modtagne offentlige nøgle med et kendt fingerprint
+     * ved hjælp af en konstant-tids sammenligning (FixedTimeEquals). Hvis fingerprintet ikke matcher, afbrydes filoverførslen, 
+     * og AES-nøglen sendes ikke til serveren.
+     */
+
     private const string ExpectedPublicKeyFingerprint = 
     "CA29F3E1DF8E672707D539AF1FA328BC6E6D9A36BDC6CA8903482D10761BD6C9";
 
