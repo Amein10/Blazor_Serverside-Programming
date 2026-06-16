@@ -1,20 +1,81 @@
 ﻿@page "/Account/ConfirmEmail"
 
+@using System.ComponentModel.DataAnnotations
+@using System.Globalization
 @using System.Text
+@using System.Text.Encodings.Web
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
 @using Blazor_Serverside_Programming.Data
 
 @inject UserManager<ApplicationUser> UserManager
+@inject UrlEncoder UrlEncoder
+@inject ILogger<ConfirmEmail> Logger
 @inject IdentityRedirectManager RedirectManager
 
 <PageTitle>Confirm email</PageTitle>
 
 <h1>Confirm email</h1>
+
 <StatusMessage Message="@statusMessage" />
 
+@if (emailConfirmed && user is not null && !twoFactorEnabled)
+{
+    <p>
+        Du skal registrere en to-faktor godkendelse. Scan følgende QR-kode med din authenticator app:
+    </p>
+
+    <div data-url="@authenticatorUri"></div>
+
+    <p>
+        Eller indtast denne nøgle manuelt:
+        <kbd>@sharedKey</kbd>
+    </p>
+
+    <EditForm Model="Input" FormName="confirm-email-2fa" OnValidSubmit="EnableTwoFactorAsync" method="post">
+        <DataAnnotationsValidator />
+
+        <div class="form-floating mb-3">
+            <InputText @bind-Value="Input.Code"
+                       id="Input.Code"
+                       class="form-control"
+                       autocomplete="off"
+                       placeholder="Verification code" />
+
+            <label for="Input.Code">Verification Code</label>
+            <ValidationMessage For="() => Input.Code" class="text-danger" />
+        </div>
+
+        <button type="submit" class="btn btn-primary">
+            Aktivér 2FA
+        </button>
+
+        <ValidationSummary class="text-danger" />
+    </EditForm>
+}
+else if (twoFactorEnabled)
+{
+    <p class="text-success">
+        2FA er aktiveret. Du kan nu logge ind.
+    </p>
+
+    <a class="btn btn-primary" href="/Account/Login">
+        Gå til login
+    </a>
+}
+
 @code {
+    private const string AuthenticatorUriFormat =
+        "otpauth://totp/{0}:{1}?secret={2}&issuer={0}&digits=6";
+
     private string? statusMessage;
+    private string? sharedKey;
+    private string? authenticatorUri;
+
+    private bool emailConfirmed;
+    private bool twoFactorEnabled;
+
+    private ApplicationUser? user;
 
     [CascadingParameter]
     private HttpContext HttpContext { get; set; } = default!;
@@ -25,38 +86,133 @@
     [SupplyParameterFromQuery]
     private string? Code { get; set; }
 
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = new();
+
     protected override async Task OnInitializedAsync()
     {
+        Input ??= new();
+
         if (UserId is null || Code is null)
         {
             RedirectManager.RedirectTo("");
             return;
         }
 
-        var user = await UserManager.FindByIdAsync(UserId);
+        user = await UserManager.FindByIdAsync(UserId);
+
         if (user is null)
         {
             HttpContext.Response.StatusCode = StatusCodes.Status404NotFound;
             statusMessage = $"Error loading user with ID {UserId}";
+            return;
         }
-        else
+
+        if (!await UserManager.IsEmailConfirmedAsync(user))
         {
-            var code = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(Code));
-            var result = await UserManager.ConfirmEmailAsync(user, code);
+            var decodedCode = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(Code));
+            var result = await UserManager.ConfirmEmailAsync(user, decodedCode);
 
-            if (result.Succeeded)
-            {
-                await UserManager.UpdateSecurityStampAsync(user);
-
-                RedirectManager.RedirectTo("Account/Login", new()
-                {
-                    ["returnUrl"] = "/Account/Manage/EnableAuthenticator"
-                });
-            }
-            else
+            if (!result.Succeeded)
             {
                 statusMessage = "Error confirming your email.";
+                return;
             }
+
+            await UserManager.UpdateSecurityStampAsync(user);
         }
+
+        emailConfirmed = true;
+        statusMessage = "Thank you for confirming your email.";
+
+        twoFactorEnabled = await UserManager.GetTwoFactorEnabledAsync(user);
+
+        if (!twoFactorEnabled)
+        {
+            await LoadSharedKeyAndQrCodeUriAsync(user);
+        }
+    }
+
+    private async Task EnableTwoFactorAsync()
+    {
+        if (user is null)
+        {
+            return;
+        }
+
+        var verificationCode = Input.Code
+            .Replace(" ", string.Empty)
+            .Replace("-", string.Empty);
+
+        var is2FaTokenValid = await UserManager.VerifyTwoFactorTokenAsync(
+            user,
+            UserManager.Options.Tokens.AuthenticatorTokenProvider,
+            verificationCode);
+
+        if (!is2FaTokenValid)
+        {
+            statusMessage = "Error: Verification code is invalid.";
+            return;
+        }
+
+        await UserManager.SetTwoFactorEnabledAsync(user, true);
+
+        var userId = await UserManager.GetUserIdAsync(user);
+        Logger.LogInformation("User with ID '{UserId}' has enabled 2FA.", userId);
+
+        twoFactorEnabled = true;
+        statusMessage = "Din authenticator app er bekræftet, og 2FA er nu aktiveret.";
+    }
+
+    private async Task LoadSharedKeyAndQrCodeUriAsync(ApplicationUser user)
+    {
+        var unformattedKey = await UserManager.GetAuthenticatorKeyAsync(user);
+
+        if (string.IsNullOrEmpty(unformattedKey))
+        {
+            await UserManager.ResetAuthenticatorKeyAsync(user);
+            unformattedKey = await UserManager.GetAuthenticatorKeyAsync(user);
+        }
+
+        sharedKey = FormatKey(unformattedKey!);
+
+        var email = await UserManager.GetEmailAsync(user);
+        authenticatorUri = GenerateQrCodeUri(email!, unformattedKey!);
+    }
+
+    private string FormatKey(string unformattedKey)
+    {
+        var result = new StringBuilder();
+        var currentPosition = 0;
+
+        while (currentPosition + 4 < unformattedKey.Length)
+        {
+            result.Append(unformattedKey.AsSpan(currentPosition, 4)).Append(' ');
+            currentPosition += 4;
+        }
+
+        if (currentPosition < unformattedKey.Length)
+        {
+            result.Append(unformattedKey.AsSpan(currentPosition));
+        }
+
+        return result.ToString().ToLowerInvariant();
+    }
+
+    private string GenerateQrCodeUri(string email, string unformattedKey)
+    {
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            AuthenticatorUriFormat,
+            UrlEncoder.Encode("Blazor_Serverside_Programming"),
+            UrlEncoder.Encode(email),
+            unformattedKey);
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        [StringLength(7, MinimumLength = 6)]
+        public string Code { get; set; } = "";
     }
 }
