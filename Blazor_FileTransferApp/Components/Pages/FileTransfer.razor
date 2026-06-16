@@ -14,6 +14,15 @@
 
 <h1>Fil overførsel app</h1>
 
+<div class="mb-3">
+    <label class="form-label">Vælg krypteringsmetode</label>
+
+    <select class="form-select" @bind="selectedEncryptionMethod">
+        <option value="Normal">AES/RSA normal</option>
+        <option value="GCM">AES-GCM/RSA</option>
+    </select>
+</div>
+
 <InputFile OnChange="HandleFileSelected" />
 
 @if (!string.IsNullOrEmpty(message))
@@ -23,20 +32,10 @@
 
 @code {
     private string? message;
+    private string selectedEncryptionMethod = "Normal";
 
-    // Første gang: lad den være tom.
-    // Kør appen, kopier fingerprint fra browseren,
-    // og indsæt værdien her.
-
-    /*
-     * For at beskytte mod Man-in-the-Middle-angreb verificerer klienten serverens offentlige RSA-nøgle ved hjælp af
-     * et SHA-256 fingerprint. Klienten sammenligner fingerprintet af den modtagne offentlige nøgle med et kendt fingerprint
-     * ved hjælp af en konstant-tids sammenligning (FixedTimeEquals). Hvis fingerprintet ikke matcher, afbrydes filoverførslen, 
-     * og AES-nøglen sendes ikke til serveren.
-     */
-
-    private const string ExpectedPublicKeyFingerprint = 
-    "CA29F3E1DF8E672707D539AF1FA328BC6E6D9A36BDC6CA8903482D10761BD6C9";
+    private const string ExpectedPublicKeyFingerprint =
+        "CA29F3E1DF8E672707D539AF1FA328BC6E6D9A36BDC6CA8903482D10761BD6C9";
 
     private async Task HandleFileSelected(InputFileChangeEventArgs e)
     {
@@ -52,8 +51,6 @@
             using var memoryStream = new MemoryStream();
             await stream.CopyToAsync(memoryStream);
 
-            // Filen gemmes ikke ukrypteret på disk.
-            // Den ligger kun midlertidigt i memory før AES-kryptering.
             fileBytes = memoryStream.ToArray();
 
             var client = HttpClientFactory.CreateClient();
@@ -63,12 +60,6 @@
             var publicKeyBytes = Convert.FromBase64String(publicKey);
             var publicKeyFingerprint = Convert.ToHexString(SHA256.HashData(publicKeyBytes));
 
-            if (string.IsNullOrWhiteSpace(ExpectedPublicKeyFingerprint))
-            {
-                message = $"Public key fingerprint: {publicKeyFingerprint}";
-                return;
-            }
-
             if (!CryptographicOperations.FixedTimeEquals(
                     Convert.FromHexString(publicKeyFingerprint),
                     Convert.FromHexString(ExpectedPublicKeyFingerprint)))
@@ -77,37 +68,14 @@
                 return;
             }
 
-            var aesResult = AesHandler.Encrypt(fileBytes);
-
-            encryptedAesKey = RsaClientHandler.EncryptWithPublicKey(
-                aesResult.Key,
-                publicKey);
-
-            var request = new EncryptedFileUploadRequest
+            if (selectedEncryptionMethod == "GCM")
             {
-                FileName = file.Name,
-                FileType = file.ContentType,
-                EncryptedFile = Convert.ToBase64String(aesResult.EncryptedBytes),
-                EncryptedKey = Convert.ToBase64String(encryptedAesKey),
-                IV = Convert.ToBase64String(aesResult.IV)
-            };
-
-            var response = await client.PostAsJsonAsync(
-                "https://localhost:7209/api/upload-encrypted-file",
-                request);
-
-            if (response.IsSuccessStatusCode)
-            {
-                message = $"Filen blev krypteret og sendt: {file.Name}";
+                await SendWithAesGcmAsync(file, fileBytes, publicKey, client);
             }
             else
             {
-                message = $"Fejl ved upload: {response.StatusCode}";
+                await SendWithNormalAesAsync(file, fileBytes, publicKey, client);
             }
-
-            CryptographicOperations.ZeroMemory(aesResult.Key);
-            CryptographicOperations.ZeroMemory(aesResult.IV);
-            CryptographicOperations.ZeroMemory(aesResult.EncryptedBytes);
         }
         finally
         {
@@ -121,5 +89,89 @@
                 CryptographicOperations.ZeroMemory(encryptedAesKey);
             }
         }
+    }
+
+    private async Task SendWithNormalAesAsync(
+        IBrowserFile file,
+        byte[] fileBytes,
+        string publicKey,
+        HttpClient client)
+    {
+        var aesResult = AesHandler.Encrypt(fileBytes);
+
+        var encryptedAesKey = RsaClientHandler.EncryptWithPublicKey(
+            aesResult.Key,
+            publicKey);
+
+        var request = new EncryptedFileUploadRequest
+        {
+            FileName = file.Name,
+            FileType = file.ContentType,
+            EncryptedFile = Convert.ToBase64String(aesResult.EncryptedBytes),
+            EncryptedKey = Convert.ToBase64String(encryptedAesKey),
+            IV = Convert.ToBase64String(aesResult.IV)
+        };
+
+        var response = await client.PostAsJsonAsync(
+            "https://localhost:7209/api/upload-encrypted-file",
+            request);
+
+        if (response.IsSuccessStatusCode)
+        {
+            message = $"Filen blev krypteret og sendt med normal AES/RSA: {file.Name}";
+        }
+        else
+        {
+            message = $"Fejl ved upload: {response.StatusCode}";
+        }
+
+        CryptographicOperations.ZeroMemory(aesResult.Key);
+        CryptographicOperations.ZeroMemory(aesResult.IV);
+        CryptographicOperations.ZeroMemory(aesResult.EncryptedBytes);
+        CryptographicOperations.ZeroMemory(encryptedAesKey);
+    }
+
+    private async Task SendWithAesGcmAsync(
+        IBrowserFile file,
+        byte[] fileBytes,
+        string publicKey,
+        HttpClient client)
+    {
+        var aesGcmResult = AesHandler.EncryptGcm(fileBytes);
+
+        var encryptedAesKey = RsaClientHandler.EncryptWithPublicKey(
+            aesGcmResult.Key,
+            publicKey);
+
+        var request = new EncryptedGcmFileUploadRequest
+        {
+            FileName = file.Name,
+            FileType = file.ContentType,
+            EncryptedFile = Convert.ToBase64String(aesGcmResult.EncryptedBytes),
+            EncryptedKey = Convert.ToBase64String(encryptedAesKey),
+            Nonce = Convert.ToBase64String(aesGcmResult.Nonce),
+            Tag = Convert.ToBase64String(aesGcmResult.Tag)
+        };
+
+        var response = await client.PostAsJsonAsync(
+            "https://localhost:7209/api/upload-encrypted-gcm-file",
+            request);
+
+        var responseText = await response.Content.ReadAsStringAsync();
+
+        if (response.IsSuccessStatusCode)
+        {
+            message = $"Filen blev krypteret og sendt med AES-GCM/RSA: {file.Name}. Server: {responseText}";
+        }
+        else
+        {
+            message = $"Fejl ved AES-GCM upload: {response.StatusCode}. Server: {responseText}";
+        }
+
+        CryptographicOperations.ZeroMemory(aesGcmResult.Key);
+        CryptographicOperations.ZeroMemory(aesGcmResult.Nonce);
+        CryptographicOperations.ZeroMemory(aesGcmResult.Tag);
+        CryptographicOperations.ZeroMemory(aesGcmResult.EncryptedBytes);
+        CryptographicOperations.ZeroMemory(encryptedAesKey);
     }
 }

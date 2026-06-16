@@ -3,10 +3,10 @@ using Blazor_Serverside_Programming.Components.Account;
 using Blazor_Serverside_Programming.Data;
 using Blazor_Serverside_Programming.Services;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
-using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,13 +18,15 @@ builder.Services.AddScoped<IdentityRedirectManager>();
 builder.Services.AddScoped<AuthenticationStateProvider, IdentityRevalidatingAuthenticationStateProvider>();
 builder.Services.AddScoped<IHashingService, HashingService>();
 builder.Services.AddScoped<AesDecryptHandler>();
+builder.Services.AddScoped<AesGcmDecryptHandler>();
 builder.Services.AddDataProtection();
+
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultScheme = IdentityConstants.ApplicationScheme;
     options.DefaultSignInScheme = IdentityConstants.ExternalScheme;
 })
-    .AddIdentityCookies();
+.AddIdentityCookies();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
@@ -45,10 +47,10 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     options.SignIn.RequireConfirmedAccount = true;
     options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
 })
-    .AddRoles<IdentityRole>()
-    .AddEntityFrameworkStores<ApplicationDbContext>()
-    .AddSignInManager()
-    .AddDefaultTokenProviders();
+.AddRoles<IdentityRole>()
+.AddEntityFrameworkStores<ApplicationDbContext>()
+.AddSignInManager()
+.AddDefaultTokenProviders();
 
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
 builder.Services.AddSingleton<RsaHandler>();
@@ -137,19 +139,19 @@ app.MapGet("/download-file/{id:int}", async (
     var fileBytes = await File.ReadAllBytesAsync(file.FilePath);
 
     var protector = dataProtectionProvider
-    .CreateProtector("FileVerificationKeyProtector");
+        .CreateProtector("FileVerificationKeyProtector");
 
-    var unprotectedKey =
-        protector.Unprotect(file.VerificationKey);
+    var unprotectedKey = protector.Unprotect(file.VerificationKey);
+    var keyBytes = Convert.FromBase64String(unprotectedKey);
 
-    var keyBytes =
-        Convert.FromBase64String(unprotectedKey);
     var newHash = hashingService.HmacSha256Hash(fileBytes, keyBytes);
 
     var newHashBytes = Convert.FromBase64String(newHash);
     var storedHashBytes = Convert.FromBase64String(file.VerificationHash);
 
-    var isValid = CryptographicOperations.FixedTimeEquals(newHashBytes, storedHashBytes);
+    var isValid = CryptographicOperations.FixedTimeEquals(
+        newHashBytes,
+        storedHashBytes);
 
     if (!isValid)
     {
@@ -209,15 +211,12 @@ app.MapPost("/api/upload-encrypted-file", async (
     await File.WriteAllBytesAsync(filePath, decryptedFileBytes);
 
     var verificationKeyBytes = RandomNumberGenerator.GetBytes(32);
-
-    var verificationKey =
-        Convert.ToBase64String(verificationKeyBytes);
+    var verificationKey = Convert.ToBase64String(verificationKeyBytes);
 
     var protector = dataProtectionProvider
         .CreateProtector("FileVerificationKeyProtector");
 
-    var protectedVerificationKey =
-        protector.Protect(verificationKey);
+    var protectedVerificationKey = protector.Protect(verificationKey);
 
     var verificationHash =
         hashingService.HmacSha256Hash(decryptedFileBytes, verificationKeyBytes);
@@ -239,6 +238,77 @@ app.MapPost("/api/upload-encrypted-file", async (
     await fileDb.SaveChangesAsync();
 
     return Results.Ok($"Encrypted file '{request.FileName}' was received, decrypted and stored for admin.");
+});
+
+app.MapPost("/api/upload-encrypted-gcm-file", async (
+    EncryptedGcmFileUploadRequest request,
+    RsaHandler rsaHandler,
+    AesGcmDecryptHandler aesGcmDecryptHandler,
+    FileInfoDbContext fileDb,
+    IHashingService hashingService,
+    IDataProtectionProvider dataProtectionProvider) =>
+{
+    var encryptedFileBytes = Convert.FromBase64String(request.EncryptedFile);
+    var encryptedKeyBytes = Convert.FromBase64String(request.EncryptedKey);
+    var nonceBytes = Convert.FromBase64String(request.Nonce);
+    var tagBytes = Convert.FromBase64String(request.Tag);
+
+    var aesKey = rsaHandler.Decrypt(encryptedKeyBytes);
+
+    byte[] decryptedFileBytes;
+
+    try
+    {
+        decryptedFileBytes = aesGcmDecryptHandler.Decrypt(
+            encryptedFileBytes,
+            aesKey,
+            nonceBytes,
+            tagBytes);
+    }
+    catch (CryptographicException)
+    {
+        return Results.BadRequest("Contaminated");
+    }
+
+    var adminFolder = Path.Combine(
+        Directory.GetCurrentDirectory(),
+        "Files",
+        "admin");
+
+    Directory.CreateDirectory(adminFolder);
+
+    var filePath = Path.Combine(adminFolder, request.FileName);
+
+    await File.WriteAllBytesAsync(filePath, decryptedFileBytes);
+
+    var verificationKeyBytes = RandomNumberGenerator.GetBytes(32);
+    var verificationKey = Convert.ToBase64String(verificationKeyBytes);
+
+    var protector = dataProtectionProvider
+        .CreateProtector("FileVerificationKeyProtector");
+
+    var protectedVerificationKey = protector.Protect(verificationKey);
+
+    var verificationHash =
+        hashingService.HmacSha256Hash(decryptedFileBytes, verificationKeyBytes);
+
+    var record = new FileRecord
+    {
+        FileName = request.FileName,
+        FileType = request.FileType,
+        FilePath = filePath,
+        FileSize = decryptedFileBytes.Length,
+        UploadDate = DateTime.UtcNow,
+        UserName = "admin",
+        VerificationHash = verificationHash,
+        VerificationKey = protectedVerificationKey,
+        HashAlgorithm = "HMAC-SHA256"
+    };
+
+    fileDb.Files.Add(record);
+    await fileDb.SaveChangesAsync();
+
+    return Results.Ok("No contamination detected");
 });
 
 app.Run();
