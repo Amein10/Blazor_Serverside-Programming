@@ -7,7 +7,6 @@
 @using Microsoft.AspNetCore.WebUtilities
 @using Blazor_Serverside_Programming.Data
 @using System.Security.Cryptography
-@using Blazor_Serverside_Programming.Services
 
 @inject UserManager<ApplicationUser> UserManager
 @inject IUserStore<ApplicationUser> UserStore
@@ -16,7 +15,6 @@
 @inject ILogger<Register> Logger
 @inject NavigationManager NavigationManager
 @inject IdentityRedirectManager RedirectManager
-@inject IHashingService HashingService
 
 <PageTitle>Register</PageTitle>
 
@@ -25,34 +23,67 @@
 <div class="row">
     <div class="col-lg-6">
         <StatusMessage Message="@Message" />
+
         <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
             <DataAnnotationsValidator />
+
             <h2>Create a new account.</h2>
             <hr />
+
             <ValidationSummary class="text-danger" role="alert" />
+
             <div class="form-floating mb-3">
-                <InputText @bind-Value="Input.UserName" id="Input.UserName" class="form-control" autocomplete="username" aria-required="true" placeholder="username" />
+                <InputText @bind-Value="Input.UserName"
+                           id="Input.UserName"
+                           class="form-control"
+                           autocomplete="username"
+                           aria-required="true"
+                           placeholder="username" />
                 <label for="Input.UserName">Username</label>
                 <ValidationMessage For="() => Input.UserName" class="text-danger" />
             </div>
+
             <div class="form-floating mb-3">
-                <InputText @bind-Value="Input.Email" id="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
+                <InputText @bind-Value="Input.Email"
+                           id="Input.Email"
+                           class="form-control"
+                           autocomplete="username"
+                           aria-required="true"
+                           placeholder="name@example.com" />
                 <label for="Input.Email">Email</label>
                 <ValidationMessage For="() => Input.Email" class="text-danger" />
             </div>
+
             <div class="form-floating mb-3">
-                <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
+                <InputText type="password"
+                           @bind-Value="Input.Password"
+                           id="Input.Password"
+                           class="form-control"
+                           autocomplete="new-password"
+                           aria-required="true"
+                           placeholder="password" />
                 <label for="Input.Password">Password</label>
                 <ValidationMessage For="() => Input.Password" class="text-danger" />
             </div>
+
             <div class="form-floating mb-3">
-                <InputText type="password" @bind-Value="Input.ConfirmPassword" id="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
+                <InputText type="password"
+                           @bind-Value="Input.ConfirmPassword"
+                           id="Input.ConfirmPassword"
+                           class="form-control"
+                           autocomplete="new-password"
+                           aria-required="true"
+                           placeholder="password" />
                 <label for="Input.ConfirmPassword">Confirm Password</label>
                 <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
             </div>
-            <button type="submit" class="w-100 btn btn-lg btn-primary">Register</button>
+
+            <button type="submit" class="w-100 btn btn-lg btn-primary">
+                Register
+            </button>
         </EditForm>
     </div>
+
     <div class="col-lg-4 col-lg-offset-2">
         <section>
             <h3>Use another service to register.</h3>
@@ -71,7 +102,10 @@
     [SupplyParameterFromQuery]
     private string? ReturnUrl { get; set; }
 
-    private string? Message => identityErrors is null ? null : $"Error: {string.Join(", ", identityErrors.Select(error => error.Description))}";
+    private string? Message =>
+        identityErrors is null
+            ? null
+            : $"Error: {string.Join(", ", identityErrors.Select(error => error.Description))}";
 
     protected override void OnInitialized()
     {
@@ -82,23 +116,43 @@
     {
         var user = CreateUser();
 
-        await UserStore.SetUserNameAsync(user, Input.UserName, CancellationToken.None);
-        var emailStore = GetEmailStore();
-        await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
+        await UserStore.SetUserNameAsync(
+            user,
+            Input.UserName,
+            CancellationToken.None);
+
+        var normalizedEmail = Input.Email.Trim().ToLowerInvariant();
 
         var salt = RandomNumberGenerator.GetBytes(32);
         var pepper = Environment.GetEnvironmentVariable("EMAIL_HASH_PEPPER");
 
         if (string.IsNullOrWhiteSpace(pepper))
         {
-            throw new InvalidOperationException("EMAIL_HASH_PEPPER environment variable is not configured.");
+            throw new InvalidOperationException(
+                "EMAIL_HASH_PEPPER environment variable is not configured.");
         }
+
         var iterations = 100_000;
+
+        var emailHashBytes = Rfc2898DeriveBytes.Pbkdf2(
+            password: Encoding.UTF8.GetBytes(normalizedEmail + pepper),
+            salt: salt,
+            iterations: iterations,
+            hashAlgorithm: HashAlgorithmName.SHA256,
+            outputLength: 32);
+
+        var emailHash = Convert.ToBase64String(emailHashBytes);
 
         user.EmailSalt = Convert.ToBase64String(salt);
         user.EmailHashIterations = iterations;
         user.EmailHashAlgorithm = "PBKDF2-SHA256";
-        user.EmailHash = HashingService.Pbkdf2Hash(Input.Email, salt, pepper, iterations);
+
+        var emailStore = GetEmailStore();
+
+        await emailStore.SetEmailAsync(
+            user,
+            emailHash,
+            CancellationToken.None);
 
         var result = await UserManager.CreateAsync(user, Input.Password);
 
@@ -110,26 +164,43 @@
 
         Logger.LogInformation("User created a new account with password.");
 
-        var filesRoot = Path.Combine(Directory.GetCurrentDirectory(), "Files");
+        var filesRoot = Path.Combine(
+            Directory.GetCurrentDirectory(),
+            "Files");
+
         Directory.CreateDirectory(filesRoot);
 
         var userFolder = Path.Combine(filesRoot, Input.UserName);
         Directory.CreateDirectory(userFolder);
 
         var userId = await UserManager.GetUserIdAsync(user);
+
         var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
         code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+
         var callbackUrl = NavigationManager.GetUriWithQueryParameters(
             NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
-            new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code, ["returnUrl"] = ReturnUrl });
+            new Dictionary<string, object?>
+            {
+                ["userId"] = userId,
+                ["code"] = code,
+                ["returnUrl"] = ReturnUrl
+            });
 
-        await EmailSender.SendConfirmationLinkAsync(user, Input.Email, HtmlEncoder.Default.Encode(callbackUrl));
+        await EmailSender.SendConfirmationLinkAsync(
+            user,
+            emailHash,
+            HtmlEncoder.Default.Encode(callbackUrl));
 
         if (UserManager.Options.SignIn.RequireConfirmedAccount)
         {
             RedirectManager.RedirectTo(
                 "Account/RegisterConfirmation",
-                new() { ["email"] = Input.Email, ["returnUrl"] = ReturnUrl });
+                new()
+                {
+                    ["email"] = emailHash,
+                    ["returnUrl"] = ReturnUrl
+                });
         }
         else
         {
@@ -146,7 +217,8 @@
         }
         catch
         {
-            throw new InvalidOperationException($"Can't create an instance of '{nameof(ApplicationUser)}'. " +
+            throw new InvalidOperationException(
+                $"Can't create an instance of '{nameof(ApplicationUser)}'. " +
                 $"Ensure that '{nameof(ApplicationUser)}' is not an abstract class and has a parameterless constructor.");
         }
     }
@@ -155,8 +227,10 @@
     {
         if (!UserManager.SupportsUserEmail)
         {
-            throw new NotSupportedException("The default UI requires a user store with email support.");
+            throw new NotSupportedException(
+                "The default UI requires a user store with email support.");
         }
+
         return (IUserEmailStore<ApplicationUser>)UserStore;
     }
 
@@ -168,14 +242,19 @@
         public string Email { get; set; } = "";
 
         [Required]
-        [StringLength(100, ErrorMessage = "The {0} must be at least {2} and at max {1} characters long.", MinimumLength = 6)]
+        [StringLength(
+            100,
+            ErrorMessage = "The {0} must be at least {2} and at max {1} characters long.",
+            MinimumLength = 6)]
         [DataType(DataType.Password)]
         [Display(Name = "Password")]
         public string Password { get; set; } = "";
 
         [DataType(DataType.Password)]
         [Display(Name = "Confirm password")]
-        [Compare("Password", ErrorMessage = "The password and confirmation password do not match.")]
+        [Compare(
+            "Password",
+            ErrorMessage = "The password and confirmation password do not match.")]
         public string ConfirmPassword { get; set; } = "";
 
         [Required]

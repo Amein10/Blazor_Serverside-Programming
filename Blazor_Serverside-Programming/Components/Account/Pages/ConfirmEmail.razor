@@ -7,6 +7,7 @@
 @using Microsoft.AspNetCore.Identity
 @using Microsoft.AspNetCore.WebUtilities
 @using Blazor_Serverside_Programming.Data
+@using Blazor_Serverside_Programming.Components.Account.Pages.Manage
 
 @inject UserManager<ApplicationUser> UserManager
 @inject UrlEncoder UrlEncoder
@@ -25,7 +26,7 @@
         Du skal registrere en to-faktor godkendelse. Scan følgende QR-kode med din authenticator app:
     </p>
 
-    <div data-url="@authenticatorUri"></div>
+    <QRCode AuthenticatorUri="@authenticatorUri" />
 
     <p>
         Eller indtast denne nøgle manuelt:

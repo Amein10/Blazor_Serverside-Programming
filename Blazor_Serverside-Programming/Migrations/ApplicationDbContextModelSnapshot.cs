@@ -41,9 +41,6 @@ namespace Blazor_Serverside_Programming.Migrations
                     b.Property<bool>("EmailConfirmed")
                         .HasColumnType("bit");
 
-                    b.Property<string>("EmailHash")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("EmailHashAlgorithm")
                         .HasColumnType("nvarchar(max)");
 

@@ -34,13 +34,15 @@
     private string? message;
     private string selectedEncryptionMethod = "Normal";
 
-    private const string ExpectedPublicKeyFingerprint =
-        "CA29F3E1DF8E672707D539AF1FA328BC6E6D9A36BDC6CA8903482D10761BD6C9";
+    // Første gang skal den være tom.
+    // Upload en fil, kopier thumbprintet fra beskeden,
+    // og indsæt værdien her.
+    private const string ExpectedCertificateThumbprint = 
+    "";
 
     private async Task HandleFileSelected(InputFileChangeEventArgs e)
     {
         byte[]? fileBytes = null;
-        byte[]? encryptedAesKey = null;
 
         try
         {
@@ -55,26 +57,33 @@
 
             var client = HttpClientFactory.CreateClient();
 
-            var publicKey = await client.GetStringAsync("https://localhost:7209/api/publickey");
+            var certificate = await client.GetStringAsync(
+                "https://localhost:7209/api/certificate");
 
-            var publicKeyBytes = Convert.FromBase64String(publicKey);
-            var publicKeyFingerprint = Convert.ToHexString(SHA256.HashData(publicKeyBytes));
+            var actualThumbprint =
+                RsaClientHandler.GetCertificateThumbprint(certificate);
+
+            if (string.IsNullOrWhiteSpace(ExpectedCertificateThumbprint))
+            {
+                message = $"Certificate thumbprint: {actualThumbprint}";
+                return;
+            }
 
             if (!CryptographicOperations.FixedTimeEquals(
-                    Convert.FromHexString(publicKeyFingerprint),
-                    Convert.FromHexString(ExpectedPublicKeyFingerprint)))
+                    Convert.FromHexString(actualThumbprint),
+                    Convert.FromHexString(ExpectedCertificateThumbprint)))
             {
-                message = "Public key validation failed. Upload stopped.";
+                message = "Certificate validation failed. Upload stopped.";
                 return;
             }
 
             if (selectedEncryptionMethod == "GCM")
             {
-                await SendWithAesGcmAsync(file, fileBytes, publicKey, client);
+                await SendWithAesGcmAsync(file, fileBytes, certificate, client);
             }
             else
             {
-                await SendWithNormalAesAsync(file, fileBytes, publicKey, client);
+                await SendWithNormalAesAsync(file, fileBytes, certificate, client);
             }
         }
         finally
@@ -83,25 +92,20 @@
             {
                 CryptographicOperations.ZeroMemory(fileBytes);
             }
-
-            if (encryptedAesKey is not null)
-            {
-                CryptographicOperations.ZeroMemory(encryptedAesKey);
-            }
         }
     }
 
     private async Task SendWithNormalAesAsync(
         IBrowserFile file,
         byte[] fileBytes,
-        string publicKey,
+        string certificate,
         HttpClient client)
     {
         var aesResult = AesHandler.Encrypt(fileBytes);
 
-        var encryptedAesKey = RsaClientHandler.EncryptWithPublicKey(
+        var encryptedAesKey = RsaClientHandler.EncryptWithCertificate(
             aesResult.Key,
-            publicKey);
+            certificate);
 
         var request = new EncryptedFileUploadRequest
         {
@@ -118,11 +122,12 @@
 
         if (response.IsSuccessStatusCode)
         {
-            message = $"Filen blev krypteret og sendt med normal AES/RSA: {file.Name}";
+            message = $"Filen blev krypteret og sendt med normal AES/RSA via certifikat: {file.Name}";
         }
         else
         {
-            message = $"Fejl ved upload: {response.StatusCode}";
+            var responseText = await response.Content.ReadAsStringAsync();
+            message = $"Fejl ved upload: {response.StatusCode}. Server: {responseText}";
         }
 
         CryptographicOperations.ZeroMemory(aesResult.Key);
@@ -134,14 +139,14 @@
     private async Task SendWithAesGcmAsync(
         IBrowserFile file,
         byte[] fileBytes,
-        string publicKey,
+        string certificate,
         HttpClient client)
     {
         var aesGcmResult = AesHandler.EncryptGcm(fileBytes);
 
-        var encryptedAesKey = RsaClientHandler.EncryptWithPublicKey(
+        var encryptedAesKey = RsaClientHandler.EncryptWithCertificate(
             aesGcmResult.Key,
-            publicKey);
+            certificate);
 
         var request = new EncryptedGcmFileUploadRequest
         {
@@ -161,7 +166,7 @@
 
         if (response.IsSuccessStatusCode)
         {
-            message = $"Filen blev krypteret og sendt med AES-GCM/RSA: {file.Name}. Server: {responseText}";
+            message = $"Filen blev krypteret og sendt med AES-GCM/RSA via certifikat: {file.Name}. Server: {responseText}";
         }
         else
         {

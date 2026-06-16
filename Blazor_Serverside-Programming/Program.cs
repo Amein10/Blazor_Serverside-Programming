@@ -54,6 +54,7 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
 
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
 builder.Services.AddSingleton<RsaHandler>();
+builder.Services.AddSingleton<CertificateHandler>();
 
 var app = builder.Build();
 
@@ -180,9 +181,14 @@ app.MapGet("/api/publickey", (RsaHandler rsaHandler) =>
     return rsaHandler.GetPublicKey();
 });
 
+app.MapGet("/api/certificate", (CertificateHandler certificateHandler) =>
+{
+    return certificateHandler.GetCertificate();
+});
+
 app.MapPost("/api/upload-encrypted-file", async (
     EncryptedFileUploadRequest request,
-    RsaHandler rsaHandler,
+    CertificateHandler certificateHandler,
     AesDecryptHandler aesDecryptHandler,
     FileInfoDbContext fileDb,
     IHashingService hashingService,
@@ -192,7 +198,7 @@ app.MapPost("/api/upload-encrypted-file", async (
     var encryptedKeyBytes = Convert.FromBase64String(request.EncryptedKey);
     var ivBytes = Convert.FromBase64String(request.IV);
 
-    var aesKey = rsaHandler.Decrypt(encryptedKeyBytes);
+    var aesKey = certificateHandler.Decrypt(encryptedKeyBytes);
 
     var decryptedFileBytes = aesDecryptHandler.Decrypt(
         encryptedFileBytes,
@@ -242,7 +248,7 @@ app.MapPost("/api/upload-encrypted-file", async (
 
 app.MapPost("/api/upload-encrypted-gcm-file", async (
     EncryptedGcmFileUploadRequest request,
-    RsaHandler rsaHandler,
+    CertificateHandler certificateHandler,
     AesGcmDecryptHandler aesGcmDecryptHandler,
     FileInfoDbContext fileDb,
     IHashingService hashingService,
@@ -253,7 +259,7 @@ app.MapPost("/api/upload-encrypted-gcm-file", async (
     var nonceBytes = Convert.FromBase64String(request.Nonce);
     var tagBytes = Convert.FromBase64String(request.Tag);
 
-    var aesKey = rsaHandler.Decrypt(encryptedKeyBytes);
+    var aesKey = certificateHandler.Decrypt(encryptedKeyBytes);
 
     byte[] decryptedFileBytes;
 

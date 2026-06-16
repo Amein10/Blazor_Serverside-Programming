@@ -12,15 +12,15 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Blazor_Serverside_Programming.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260612094304_AddEmailHashFieldsToUser")]
-    partial class AddEmailHashFieldsToUser
+    [Migration("20260616120250_AddCustomerTable")]
+    partial class AddCustomerTable
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -43,9 +43,6 @@ namespace Blazor_Serverside_Programming.Migrations
 
                     b.Property<bool>("EmailConfirmed")
                         .HasColumnType("bit");
-
-                    b.Property<string>("EmailHash")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("EmailHashAlgorithm")
                         .HasColumnType("nvarchar(max)");
